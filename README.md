@@ -12,7 +12,6 @@ Persian/Arabic Text Processor
 ✅ **رابط خط فرمان** - CLI for scripting  
 ✅ **پنجره Regex** - Separate regex window with highlighting  
 ✅ **چندزبانه** - Multilingual (Persian, Arabic, English)  
-✅ **کپی/پیست** - Full copy/paste support  
 ✅ **Decode** - Convert reshaped text back to original  
 
 ---
@@ -74,6 +73,11 @@ echo "تست" | python cli.py -s
 
 ---
 
+### دانلود برنامه
+
+- [Download](https://uploadkon.ir/do.php?filename=14e407_26Harf-negar.rar)
+
+---
 ## لایسنس / License
 
 ```

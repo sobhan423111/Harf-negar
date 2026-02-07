@@ -10,6 +10,7 @@ Licensed under GPL-2.0
 import tkinter as tk
 from tkinter import ttk, messagebox
 from text_processor import TextProcessor
+import gui
 import sys
 
 
@@ -190,25 +191,40 @@ class RegexWindow(tk.Toplevel):
         self.result_text.config(state='disabled')
     
     def apply_pattern(self):
-        """Apply pattern and process only matched parts"""
+        """Apply pattern: put matched parts line by line in input and update output"""
         if not self.current_matches:
             messagebox.showwarning(
                 self.lang.get('warning'),
                 "Please test the pattern first"
             )
             return
-        
-        # Get input text
+
         text = self.input_widget.get("1.0", "end-1c")
         pattern = self.pattern_entry.get().strip()
-        
-        # Process with regex
-        result = TextProcessor.process_with_regex(text, pattern, self.current_matches)
-        
-        # Update output
-        if self.callback:
+
+        matched_texts = [text[start:end] for start, end in self.current_matches]
+
+        if not matched_texts:
+            messagebox.showinfo(
+                self.lang.get('info'),
+                "No matches to apply"
+            )
+            return
+
+        new_input = "\n".join(matched_texts)
+        self.input_widget.delete("1.0", "end")
+        self.input_widget.insert("1.0", new_input)
+        try:
+            result = TextProcessor.encode_text(new_input)
+            self.output_widget.delete("1.0", "end")
+            self.output_widget.insert("1.0", result)
+        except Exception as e:
+            print(f"Error processing output: {e}")
+
+        if hasattr(self, 'callback') and self.callback:
+            result = TextProcessor.process_with_regex(text, pattern, self.current_matches)
             self.callback(result)
-        
+
         messagebox.showinfo(
             self.lang.get('success'),
             self.lang.get('processed')
