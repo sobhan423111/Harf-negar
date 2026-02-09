@@ -1,287 +1,99 @@
 # -*- coding: utf-8 -*-
-"""
-Harfnegar - Language Manager
-Manages translations for multiple languages
-
-Copyright (c) 2026 Sobhan Mohammadi
-Licensed under GPL-2.0
-"""
-
+"""Harfnegar Language Manager v1.4.2"""
+import polib
 
 class LanguageManager:
-    """Manages application translations"""
-    
-    TRANSLATIONS = {
-        'fa': {
-            # Menu
-            'file': 'پرونده',
-            'new': 'جدید',
-            'open': 'باز کردن...',
-            'save_output': 'ذخیره خروجی...',
-            'exit': 'خروج',
-            
-            'edit': 'ویرایش',
-            'undo': 'واگرد',
-            'select_all': 'انتخاب همه',
-            'copy': 'کپی',
-            'paste': 'چسباندن',
-            
-            'tools': 'ابزارها',
-            'regex_window': 'پنجره Regex...',
-            'font_settings': 'تنظیم فونت...',
-            'always_on_top': 'همیشه در بالا',
-            'quick_mode': 'حالت سریع',
-            'language': 'زبان',
-            
-            'help': 'راهنما',
-            'user_guide': 'راهنمای استفاده',
-            'about': 'درباره',
-            
-            # Main window
-            'title': 'حرف‌نگار - Harfnegar',
-            'input_label': 'متن ورودی (فارسی/عربی)',
-            'output_label': 'متن خروجی (پردازش شده)',
-            'auto_copy': 'کپی خودکار',
-            'process': 'پردازش',
-            'copy_output': 'کپی خروجی',
-            'status_ready': 'آماده',
-            'chars': 'کاراکتر',
-            
-            # Regex window
-            'regex_title': 'پنجره Regex',
-            'regex_pattern': 'الگوی Regex:',
-            'regex_test': 'تست',
-            'regex_apply': 'اعمال',
-            'regex_close': 'بستن',
-            'regex_matches': 'تطابق',
-            'regex_invalid': 'الگوی Regex نامعتبر است',
-            'regex_no_match': 'تطابقی یافت نشد',
-            
-            # Messages
-            'new_confirm': 'آیا می‌خواهید فایل جدید ایجاد کنید؟\nتغییرات ذخیره نشده از بین می‌رود.',
-            'file_opened': 'فایل باز شد',
-            'file_saved': 'فایل ذخیره شد',
-            'copied': 'کپی شد',
-            'processed': 'پردازش انجام شد',
-            'error': 'خطا',
-            'warning': 'هشدار',
-            'success': 'موفقیت',
-            'info': 'اطلاعات',
-            
-            # About
-            'about_text': '''حرف‌نگار - Harfnegar
-نسخه 0.0.1
-
-پردازشگر متن فارسی و عربی
-
-استفاده از:
-• arabic-reshaper
-• python-bidi
-• tkinter
-
-Copyright (c) 2026 Sobhan Mohammadi
-GPL-2.0 License''',
-            
-            # Help
-            'help_text': '''راهنمای حرف‌نگار
-
-نحوه استفاده:
-1. متن فارسی/عربی را در بخش ورودی وارد کنید
-2. متن پردازش شده در بخش خروجی نمایش داده می‌شود
-3. می‌توانید از Regex برای پردازش انتخابی استفاده کنید
-
-استفاده از Regex:
-1. از منوی ابزارها → پنجره Regex را باز کنید
-2. الگوی مورد نظر را وارد کنید
-3. روی "تست" کلیک کنید - قسمت‌های تطابق یافته highlight می‌شوند
-4. روی "اعمال" کلیک کنید - فقط قسمت‌های highlight شده پردازش می‌شوند'''
-        },
-        
-        'ar': {
-            # Menu
-            'file': 'ملف',
-            'new': 'جديد',
-            'open': 'فتح...',
-            'save_output': 'حفظ المخرجات...',
-            'exit': 'خروج',
-            
-            'edit': 'تحرير',
-            'undo': 'تراجع',
-            'select_all': 'تحديد الكل',
-            'copy': 'نسخ',
-            'paste': 'لصق',
-            
-            'tools': 'أدوات',
-            'regex_window': 'نافذة Regex...',
-            'font_settings': 'إعدادات الخط...',
-            'always_on_top': 'دائماً في المقدمة',
-            'quick_mode': 'الوضع السريع',
-            'language': 'اللغة',
-            
-            'help': 'مساعدة',
-            'user_guide': 'دليل المستخدم',
-            'about': 'حول',
-            
-            # Main window
-            'title': 'حرف‌نگار - Harfnegar',
-            'input_label': 'النص المدخل (فارسي/عربي)',
-            'output_label': 'النص المخرج (معالج)',
-            'auto_copy': 'نسخ تلقائي',
-            'process': 'معالجة',
-            'copy_output': 'نسخ المخرجات',
-            'status_ready': 'جاهز',
-            'chars': 'حرف',
-            
-            # Regex window
-            'regex_title': 'نافذة Regex',
-            'regex_pattern': 'نمط Regex:',
-            'regex_test': 'اختبار',
-            'regex_apply': 'تطبيق',
-            'regex_close': 'إغلاق',
-            'regex_matches': 'تطابق',
-            'regex_invalid': 'نمط Regex غير صالح',
-            'regex_no_match': 'لم يتم العثور على تطابق',
-            
-            # Messages
-            'new_confirm': 'هل تريد إنشاء ملف جديد؟\nسيتم فقدان التغييرات غير المحفوظة.',
-            'file_opened': 'تم فتح الملف',
-            'file_saved': 'تم حفظ الملف',
-            'copied': 'تم النسخ',
-            'processed': 'تمت المعالجة',
-            'error': 'خطأ',
-            'warning': 'تحذير',
-            'success': 'نجاح',
-            'info': 'معلومات',
-            
-            # About
-            'about_text': '''حرف‌نگار - Harfnegar
-الإصدار 0.0.1
-
-معالج النصوص الفارسية والعربية
-
-استخدام:
-• arabic-reshaper
-• python-bidi
-• tkinter
-
-Copyright (c) 2026 Sobhan Mohammadi
-GPL-2.0 License''',
-            
-            # Help
-            'help_text': '''دليل حرف‌نگار
-
-كيفية الاستخدام:
-1. أدخل النص الفارسي/العربي في قسم الإدخال
-2. سيتم عرض النص المعالج في قسم الإخراج
-3. يمكنك استخدام Regex للمعالجة الانتقائية
-
-استخدام Regex:
-1. افتح من قائمة الأدوات → نافذة Regex
-2. أدخل النمط المطلوب
-3. انقر على "اختبار" - سيتم تمييز الأجزاء المطابقة
-4. انقر على "تطبيق" - سيتم معالجة الأجزاء المميزة فقط'''
-        },
-        
+    LANGS = {
         'en': {
-            # Menu
-            'file': 'File',
-            'new': 'New',
-            'open': 'Open...',
-            'save_output': 'Save Output...',
-            'exit': 'Exit',
-            
-            'edit': 'Edit',
-            'undo': 'Undo',
-            'select_all': 'Select All',
-            'copy': 'Copy',
-            'paste': 'Paste',
-            
-            'tools': 'Tools',
-            'regex_window': 'Regex Window...',
-            'font_settings': 'Font Settings...',
-            'always_on_top': 'Always on Top',
-            'quick_mode': 'Quick Mode',
-            'language': 'Language',
-            
-            'help': 'Help',
-            'user_guide': 'User Guide',
-            'about': 'About',
-            
-            # Main window
-            'title': 'Harfnegar',
-            'input_label': 'Input Text (Persian/Arabic)',
-            'output_label': 'Output Text (Processed)',
-            'auto_copy': 'Auto Copy',
-            'process': 'Process',
-            'copy_output': 'Copy Output',
-            'status_ready': 'Ready',
-            'chars': 'chars',
-            
-            # Regex window
-            'regex_title': 'Regex Window',
-            'regex_pattern': 'Regex Pattern:',
-            'regex_test': 'Test',
-            'regex_apply': 'Apply',
-            'regex_close': 'Close',
-            'regex_matches': 'matches',
-            'regex_invalid': 'Invalid Regex pattern',
-            'regex_no_match': 'No matches found',
-            
-            # Messages
-            'new_confirm': 'Do you want to create a new file?\nUnsaved changes will be lost.',
-            'file_opened': 'File opened',
-            'file_saved': 'File saved',
-            'copied': 'Copied',
-            'processed': 'Processed',
-            'error': 'Error',
-            'warning': 'Warning',
-            'success': 'Success',
-            'info': 'Information',
-            
-            # About
-            'about_text': '''Harfnegar
-Version 0.0.1
-
-Persian/Arabic Text Processor
-
-Using:
-• arabic-reshaper
-• python-bidi
-• tkinter
-
-Copyright (c) 2026 Sobhan Mohammadi
-GPL-2.0 License''',
-            
-            # Help
-            'help_text': '''Harfnegar User Guide
-
-How to use:
-1. Enter Persian/Arabic text in the input section
-2. Processed text will be displayed in the output section
-3. You can use Regex for selective processing
-
-Using Regex:
-1. Open from Tools menu → Regex Window
-2. Enter the desired pattern
-3. Click "Test" - matching parts will be highlighted
-4. Click "Apply" - only highlighted parts will be processed'''
-        }
+            'app_name': 'Harfnegar', 'file': 'File', 'new': 'New', 'open': 'Open', 'save': 'Save', 'save_as': 'Save As', 'exit': 'Exit',
+            'edit': 'Edit', 'undo': 'Undo', 'redo': 'Redo', 'select_all': 'Select All', 'copy': 'Copy', 'paste': 'Paste', 'cut': 'Cut',
+            'tools': 'Tools', 'regex': 'Regex', 'font': 'Font', 'always_on_top': 'Always on Top', 'quick_mode': 'Quick Mode',
+            'language': 'Language', 'help': 'Help', 'about': 'About',
+            'input': 'Input', 'output': 'Output', 'auto_copy': 'Auto Copy', 'process': 'Process', 'ready': 'Ready',
+            'chars': 'chars', 'words': 'words', 'lines': 'lines', 'clear': 'Clear',
+            'zoom_in': 'Zoom In', 'zoom_out': 'Zoom Out', 'reset': 'Reset Zoom', 'stats': 'Statistics',
+            'view': 'View', 'theme': 'Theme', 'light': 'Light', 'dark': 'Dark',
+            'pattern': 'Pattern:', 'test': 'Test', 'apply': 'Apply', 'close': 'Close', 'matches': 'matches',
+            'recent': 'Recent', 'history': 'History', 'export_pot': 'Export POT', 'import_po': 'Import PO',
+            'utilities': 'Utilities', 'reverse': 'Reverse Text', 'remove_spaces': 'Remove Extra Spaces',
+            'line_numbers': 'Add Line Numbers', 'frequency': 'Character Frequency', 'find_replace': 'Find & Replace',
+            'favorites': 'Favorites', 'add_favorite': 'Add to Favorites', 'manage_favorites': 'Manage Favorites',
+            'po_editor': 'PO Editor', 'json_editor': 'JSON Editor', 'yaml_editor': 'YAML Editor', 'xml_editor': 'XML Editor',
+            'msgid': 'Source', 'msgstr': 'Translation', 'comment': 'Comment', 'key': 'Key', 'value': 'Value',
+            'process_all': 'Process All', 'process_selected': 'Process Selected', 'select_text': 'Select',
+            'search': 'Search', 'filter': 'Filter', 'exceptions': 'Exceptions', 'add_exception': 'Add Exception',
+            'description': 'Description', 'enabled': 'Enabled', 'disabled': 'Disabled', 'delete': 'Delete',
+            'fuzzy': 'Fuzzy', 'untranslated': 'Untranslated', 'translated': 'Translated', 'show_all': 'Show All',
+            'row': 'Row', 'expand': 'Expand', 'collapse': 'Collapse', 'expand_all': 'Expand All', 'collapse_all': 'Collapse All',
+            'insert': 'Insert', 'remove': 'Remove', 'move_up': 'Move Up', 'move_down': 'Move Down',
+            'duplicate': 'Duplicate', 'validate': 'Validate', 'format': 'Format', 'minify': 'Minify',
+            'prettify': 'Prettify', 'sort_keys': 'Sort Keys', 'node': 'Node', 'attribute': 'Attribute',
+            'text_content': 'Text', 'add_node': 'Add Node', 'add_attribute': 'Add Attribute',
+        },
+        'fa': {
+            'app_name': 'حرف‌نگار', 'file': 'پرونده', 'new': 'جدید', 'open': 'باز کردن', 'save': 'ذخیره', 'save_as': 'ذخیره در', 'exit': 'خروج',
+            'edit': 'ویرایش', 'undo': 'واگرد', 'redo': 'از نو', 'select_all': 'انتخاب همه', 'copy': 'کپی', 'paste': 'چسباندن', 'cut': 'برش',
+            'tools': 'ابزارها', 'regex': 'Regex', 'font': 'فونت', 'always_on_top': 'همیشه بالا', 'quick_mode': 'حالت سریع',
+            'language': 'زبان', 'help': 'راهنما', 'about': 'درباره',
+            'input': 'ورودی', 'output': 'خروجی', 'auto_copy': 'کپی خودکار', 'process': 'پردازش', 'ready': 'آماده',
+            'chars': 'حرف', 'words': 'کلمه', 'lines': 'خط', 'clear': 'پاک کردن',
+            'zoom_in': 'بزرگنمایی', 'zoom_out': 'کوچکنمایی', 'reset': 'بازنشانی', 'stats': 'آمار',
+            'view': 'نمایش', 'theme': 'تم', 'light': 'روشن', 'dark': 'تاریک',
+            'history': 'تاریخچه', 'recent': 'اخیر', 'utilities': 'ابزارها',
+            'reverse': 'معکوس کردن', 'remove_spaces': 'حذف فضای اضافی', 'line_numbers': 'شماره خط',
+            'frequency': 'فراوانی حروف', 'find_replace': 'جست‌وجو و جایگزین', 'favorites': 'علاقه‌مندی‌ها',
+            'po_editor': 'ویرایشگر PO', 'json_editor': 'ویرایشگر JSON', 'yaml_editor': 'ویرایشگر YAML', 'xml_editor': 'ویرایشگر XML',
+            'msgid': 'منبع', 'msgstr': 'ترجمه', 'comment': 'توضیح', 'key': 'کلید', 'value': 'مقدار',
+            'process_all': 'پردازش همه', 'process_selected': 'پردازش انتخاب‌شده', 'select_text': 'انتخاب',
+            'search': 'جستجو', 'filter': 'فیلتر', 'exceptions': 'استثنائات', 'add_exception': 'افزودن استثنا',
+            'description': 'توضیحات', 'enabled': 'فعال', 'disabled': 'غیرفعال', 'delete': 'حذف',
+            'fuzzy': 'مبهم', 'untranslated': 'ترجمه نشده', 'translated': 'ترجمه شده', 'show_all': 'نمایش همه',
+            'row': 'ردیف', 'expand': 'باز کردن', 'collapse': 'بستن', 'expand_all': 'باز کردن همه', 'collapse_all': 'بستن همه',
+            'insert': 'درج', 'remove': 'حذف', 'move_up': 'بالا', 'move_down': 'پایین',
+            'duplicate': 'تکثیر', 'validate': 'اعتبارسنجی', 'format': 'قالب‌بندی', 'minify': 'فشرده', 'prettify': 'زیباسازی',
+        },
+        'ar': {'app_name': 'Harfnegar', 'theme': 'المظهر', 'light': 'فاتح', 'dark': 'داكن'},
     }
     
-    def __init__(self, language='fa'):
-        self.current_language = language
+    # Add other 48 languages with minimal translations
+    for lang_code in ['es', 'fr', 'de', 'ru', 'zh', 'ja', 'tr', 'pt', 'it', 'nl', 'pl', 'ko', 'vi', 'th', 'id', 'ms', 'hi', 'bn', 'ur', 'sw', 'ro', 'uk', 'cs', 'sv', 'da', 'no', 'fi', 'el', 'he', 'hu', 'sk', 'bg', 'hr', 'sr', 'ca', 'af', 'az', 'ka', 'lt', 'lv', 'et', 'sl', 'sq', 'mk', 'is', 'mt', 'cy', 'ga']:
+        if lang_code not in LANGS:
+            LANGS[lang_code] = {'app_name': 'Harfnegar'}
     
-    def set_language(self, language):
-        """Set current language"""
-        if language in self.TRANSLATIONS:
-            self.current_language = language
-            return True
-        return False
+    def __init__(self, db):
+        self.db = db
+        self.lang = db.get('language', 'en')
+        self.custom = {}
+        for cl in db.get_custom_languages():
+            self.custom[cl['code']] = cl['translations']
     
     def get(self, key, default=''):
-        """Get translation for key"""
-        return self.TRANSLATIONS.get(self.current_language, {}).get(key, default)
+        if self.lang in self.custom and key in self.custom[self.lang]:
+            return self.custom[self.lang][key]
+        return self.LANGS.get(self.lang, {}).get(key, self.LANGS['en'].get(key, default))
     
-    def get_current_language(self):
-        """Get current language code"""
-        return self.current_language
+    def set_language(self, lang):
+        self.lang = lang
+        self.db.set('language', lang)
+    
+    def get_languages(self):
+        return {'builtin': list(self.LANGS.keys()), 'custom': list(self.custom.keys())}
+    
+    def export_pot(self, filename):
+        try:
+            po = polib.POFile()
+            po.metadata = {'Project-Id-Version': '1.4.2', 'Content-Type': 'text/plain; charset=utf-8'}
+            for k, v in self.LANGS['en'].items():
+                po.append(polib.POEntry(msgid=k, msgstr='', comment=v))
+            po.save(filename)
+            return True
+        except: return False
+    
+    def import_po(self, filename, code, name):
+        try:
+            po = polib.pofile(filename)
+            trans = {e.msgid: e.msgstr for e in po if e.msgstr}
+            self.db.add_custom_language(code, name, trans)
+            self.custom[code] = trans
+            return True
+        except: return False

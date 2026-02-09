@@ -1,515 +1,764 @@
 # -*- coding: utf-8 -*-
-"""
-Harfnegar - Main GUI
-Main graphical user interface
-
-Copyright (c) 2026 Sobhan Mohammadi
-Licensed under GPL-2.0
-"""
-
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, font as tkfont
+"""Harfnegar GUI v1.4.2 - Universal File Editor
+Copyright (c) 2026 Sobhan Mohammadi - GPL-2.0"""
+import sys, os, platform, json, yaml, polib
+from xml.etree import ElementTree as ET
+from xml.dom import minidom
+from PySide6.QtWidgets import *
+from PySide6.QtCore import *
+from PySide6.QtGui import *
 import pyperclip
 from text_processor import TextProcessor
+from database_manager import DatabaseManager
 from language_manager import LanguageManager
-from settings_manager import SettingsManager
-from regex_window import RegexWindow
-import sys
 
-
-class HarfnegarGUI:
-    """Main application GUI"""
+class UniversalFileEditor(QDialog):
+    """Universal editor for PO/JSON/YAML/XML files"""
+    def __init__(self, parent, lang, filepath, db):
+        super().__init__(parent)
+        self.lang = lang
+        self.filepath = filepath
+        self.db = db
+        self.file_type = os.path.splitext(filepath)[1].lower()
+        self.data = None
+        
+        title_map = {'.po': 'po_editor', '.json': 'json_editor', '.yaml': 'yaml_editor', '.yml': 'yaml_editor', '.xml': 'xml_editor'}
+        self.setWindowTitle(lang.get(title_map.get(self.file_type, 'file')))
+        self.resize(1400, 800)
+        
+        layout = QVBoxLayout()
+        
+        # Toolbar
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(QLabel(lang.get('search') + ':'))
+        self.search_input = QLineEdit()
+        self.search_input.textChanged.connect(self.filter_entries)
+        toolbar.addWidget(self.search_input)
+        
+        if self.file_type == '.po':
+            self.filter_combo = QComboBox()
+            self.filter_combo.addItems([lang.get('show_all'), lang.get('untranslated'), lang.get('translated'), lang.get('fuzzy')])
+            self.filter_combo.currentTextChanged.connect(self.filter_entries)
+            toolbar.addWidget(self.filter_combo)
+        
+        # Buttons
+        self.select_btn = QPushButton(lang.get('select_text'))
+        self.select_btn.clicked.connect(self.select_current_text)
+        toolbar.addWidget(self.select_btn)
+        
+        self.process_sel_btn = QPushButton(lang.get('process_selected'))
+        self.process_sel_btn.clicked.connect(self.process_selected)
+        toolbar.addWidget(self.process_sel_btn)
+        
+        self.process_all_btn = QPushButton(lang.get('process_all'))
+        self.process_all_btn.clicked.connect(self.process_all)
+        toolbar.addWidget(self.process_all_btn)
+        
+        save_btn = QPushButton(lang.get('save'))
+        save_btn.clicked.connect(self.save_file)
+        toolbar.addWidget(save_btn)
+        
+        layout.addLayout(toolbar)
+        
+        # Table
+        self.table = QTableWidget()
+        self.setup_table()
+        layout.addWidget(self.table)
+        
+        # Bottom buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton(lang.get('close'))
+        close_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+        self.load_file()
     
-    def __init__(self, root):
-        self.root = root
-
-        #icon
-        if sys.platform.startswith("win"):
-            self.root.iconbitmap(self.resource_path("icon.ico"))
+    def setup_table(self):
+        if self.file_type == '.po':
+            self.table.setColumnCount(4)
+            self.table.setHorizontalHeaderLabels([self.lang.get('msgid'), self.lang.get('msgstr'), self.lang.get('comment'), self.lang.get('fuzzy')])
         else:
-            icon = tk.PhotoImage(file=self.resource_path("icon.png"))
-            self.root.iconphoto(True, icon)
+            self.table.setColumnCount(3)
+            self.table.setHorizontalHeaderLabels([self.lang.get('key'), self.lang.get('value'), self.lang.get('comment')])
         
-        # Managers
-        self.settings = SettingsManager()
-        self.lang = LanguageManager(self.settings.get('language', 'fa'))
-        
-        # Setup window
-        self.root.title(self.lang.get('title'))
-        width = self.settings.get_int('window_width', 900)
-        height = self.settings.get_int('window_height', 700)
-        self.root.geometry(f"{width}x{height}")
-        
-        # Variables
-        self.auto_copy = tk.BooleanVar(value=self.settings.get_bool('auto_copy'))
-        self.always_on_top = tk.BooleanVar(value=self.settings.get_bool('always_on_top'))
-        self.quick_mode = tk.BooleanVar(value=self.settings.get_bool('quick_mode'))
-        
-        # Font
-        font_family = self.settings.get('font_family', 'Tahoma')
-        font_size = self.settings.get_int('font_size', 11)
-        self.text_font = tkfont.Font(family=font_family, size=font_size)
-        
-        # Create UI
-        self._create_menu()
-        self._create_main_area()
-        self._create_control_panel()
-        self._create_status_bar()
-
-        
-        # Apply settings
-        self.root.attributes('-topmost', self.always_on_top.get())
-        
-        # Clipboard monitoring
-        self.last_clipboard = ""
-        self.monitor_clipboard()
-        
-        # Focus
-        self.txt_input.focus_set()
-        
-        # Update status
-        self.update_char_count()
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
     
-    def resource_path(self, relative_path):
-        import os, sys
+    def load_file(self):
         try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.abspath(".")
-        return os.path.join(base_path, relative_path)
-
-    def _create_menu(self):
-        """Create menu bar"""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-        
-        # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label=self.lang.get('file'), menu=file_menu)
-        file_menu.add_command(label=self.lang.get('new'), command=self.new_file)
-        file_menu.add_command(label=self.lang.get('open'), command=self.open_file)
-        file_menu.add_separator()
-        file_menu.add_command(label=self.lang.get('save_output'), command=self.save_file)
-        file_menu.add_separator()
-        file_menu.add_command(label=self.lang.get('exit'), command=self.root.quit)
-        
-        # Edit menu
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label=self.lang.get('edit'), menu=edit_menu)
-        edit_menu.add_command(label=self.lang.get('undo'), command=self.undo)
-        edit_menu.add_separator()
-        edit_menu.add_command(label=self.lang.get('select_all'), command=self.select_all)
-        edit_menu.add_command(label=self.lang.get('copy'), command=self.copy_text)
-        edit_menu.add_command(label=self.lang.get('paste'), command=self.paste_text)
-        
-        # Tools menu
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label=self.lang.get('tools'), menu=tools_menu)
-        tools_menu.add_command(label=self.lang.get('regex_window'), command=self.open_regex_window)
-        tools_menu.add_separator()
-        tools_menu.add_command(label=self.lang.get('font_settings'), command=self.font_settings)
-        tools_menu.add_separator()
-        tools_menu.add_checkbutton(label=self.lang.get('always_on_top'), 
-                                   variable=self.always_on_top,
-                                   command=self.toggle_always_on_top)
-        tools_menu.add_checkbutton(label=self.lang.get('quick_mode'),
-                                   variable=self.quick_mode,
-                                   command=self.toggle_quick_mode)
-        
-        # Language submenu
-        lang_menu = tk.Menu(tools_menu, tearoff=0)
-        tools_menu.add_separator()
-        tools_menu.add_cascade(label=self.lang.get('language'), menu=lang_menu)
-        
-        self.lang_var = tk.StringVar(value=self.lang.get_current_language())
-        lang_menu.add_radiobutton(label="فارسی", variable=self.lang_var, 
-                                 value='fa', command=lambda: self.change_language('fa'))
-        lang_menu.add_radiobutton(label="العربية", variable=self.lang_var,
-                                 value='ar', command=lambda: self.change_language('ar'))
-        lang_menu.add_radiobutton(label="English", variable=self.lang_var,
-                                 value='en', command=lambda: self.change_language('en'))
-        
-        # Help menu
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label=self.lang.get('help'), menu=help_menu)
-        help_menu.add_command(label=self.lang.get('user_guide'), command=self.show_help)
-        help_menu.add_separator()
-        help_menu.add_command(label=self.lang.get('about'), command=self.show_about)
-    
-    def _create_main_area(self):
-        """Create main text areas"""
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Paned window
-        paned = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
-        paned.pack(fill=tk.BOTH, expand=True)
-        
-        # Input frame
-        input_frame = ttk.LabelFrame(paned, text=self.lang.get('input_label'), padding="5")
-        
-        txt_in_frame = ttk.Frame(input_frame)
-        txt_in_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.txt_input = tk.Text(txt_in_frame, wrap=tk.WORD, undo=True,
-                                font=self.text_font, relief=tk.SOLID, 
-                                borderwidth=1, bg='#FCFDFF')
-        self.txt_input.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scroll_in = ttk.Scrollbar(txt_in_frame, command=self.txt_input.yview)
-        scroll_in.pack(side=tk.RIGHT, fill=tk.Y)
-        self.txt_input.config(yscrollcommand=scroll_in.set)
-        
-        # Bind events
-        self.txt_input.bind('<KeyRelease>', self.on_input_change)
-        self.txt_input.bind('<ButtonRelease-1>', self.on_input_change)
-        
-        paned.add(input_frame, weight=1)
-        
-        # Output frame
-        output_frame = ttk.LabelFrame(paned, text=self.lang.get('output_label'), padding="5")
-        
-        txt_out_frame = ttk.Frame(output_frame)
-        txt_out_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.txt_output = tk.Text(txt_out_frame, wrap=tk.WORD, undo=True,
-                                 font=self.text_font, relief=tk.SOLID,
-                                 borderwidth=1, bg='#F0FFF0')
-        self.txt_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scroll_out = ttk.Scrollbar(txt_out_frame, command=self.txt_output.yview)
-        scroll_out.pack(side=tk.RIGHT, fill=tk.Y)
-        self.txt_output.config(yscrollcommand=scroll_out.set)
-        
-        # Bind events for output (to decode)
-        self.txt_output.bind('<KeyRelease>', self.on_output_change)
-        
-        paned.add(output_frame, weight=1)
-    
-    def _create_control_panel(self):
-        """Create control panel"""
-        control_frame = ttk.Frame(self.root)
-        control_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Left side
-        left_frame = ttk.Frame(control_frame)
-        left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        ttk.Checkbutton(left_frame, text=self.lang.get('auto_copy'),
-                       variable=self.auto_copy,
-                       command=self.toggle_auto_copy).pack(side=tk.LEFT, padx=5)
-        
-        # Right side
-        right_frame = ttk.Frame(control_frame)
-        right_frame.pack(side=tk.RIGHT)
-        
-        ttk.Button(right_frame, text=self.lang.get('copy_output'),
-                  command=self.copy_output).pack(side=tk.RIGHT, padx=5)
-        
-        ttk.Button(right_frame, text=self.lang.get('process'),
-                  command=self.force_process).pack(side=tk.RIGHT, padx=5)
-    
-    def _create_status_bar(self):
-        """Create status bar"""
-        status_frame = ttk.Frame(self.root, relief=tk.SUNKEN)
-        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        
-        self.status_label = ttk.Label(status_frame, text=self.lang.get('status_ready'))
-        self.status_label.pack(side=tk.LEFT, padx=5, pady=2)
-        
-        self.char_label = ttk.Label(status_frame, text="0 " + self.lang.get('chars'))
-        self.char_label.pack(side=tk.RIGHT, padx=5, pady=2)
-    
-    def update_status(self, message, duration=3000):
-        """Update status message"""
-        self.status_label.config(text=message)
-        if duration > 0:
-            self.root.after(duration, lambda: self.status_label.config(
-                text=self.lang.get('status_ready')))
-    
-    def update_char_count(self):
-        """Update character count"""
-        text = self.txt_input.get("1.0", "end-1c")
-        count = len(text)
-        self.char_label.config(text=f"{count} {self.lang.get('chars')}")
-    
-    def on_input_change(self, event=None):
-        """Handle input changes"""
-        if hasattr(self, '_update_job'):
-            self.root.after_cancel(self._update_job)
-        
-        self._update_job = self.root.after(300, self.update_output)
-        self.update_char_count()
-    
-    def on_output_change(self, event=None):
-        """Handle output changes - decode text"""
-        if hasattr(self, '_decode_job'):
-            self.root.after_cancel(self._decode_job)
-        
-        self._decode_job = self.root.after(500, self.decode_output)
-    
-    def update_output(self):
-        """Update output from input"""
-        try:
-            text = self.txt_input.get("1.0", "end-1c")
-            
-            if not text.strip():
-                self.txt_output.delete("1.0", tk.END)
-                return
-            
-            # Process text
-            result = TextProcessor.encode_text(text)
-            
-            # Update output
-            self.txt_output.delete("1.0", tk.END)
-            self.txt_output.insert("1.0", result)
-            
-            # Auto copy
-            if self.auto_copy.get():
-                self.copy_to_clipboard(result)
-            
-            self.update_status(self.lang.get('processed'))
-            
+            if self.file_type == '.po':
+                self.load_po()
+            elif self.file_type == '.json':
+                self.load_json()
+            elif self.file_type in ['.yaml', '.yml']:
+                self.load_yaml()
+            elif self.file_type == '.xml':
+                self.load_xml()
         except Exception as e:
-            print(f"Error: {e}")
+            QMessageBox.critical(self, 'Error', f'Failed to load: {str(e)}')
     
-    def decode_output(self):
-        """Decode output to input"""
-        try:
-            text = self.txt_output.get("1.0", "end-1c")
+    def load_po(self):
+        self.data = polib.pofile(self.filepath)
+        self.table.setRowCount(0)
+        for entry in self.data:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
             
-            if not text.strip():
-                return
+            self.table.setItem(row, 0, QTableWidgetItem(entry.msgid))
+            self.table.item(row, 0).setFlags(self.table.item(row, 0).flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(row, 1, QTableWidgetItem(entry.msgstr))
+            self.table.setItem(row, 2, QTableWidgetItem(entry.comment or ''))
             
-            # Decode text
-            result = TextProcessor.decode_text(text)
-            
-            # Update input (unbind first)
-            self.txt_input.bind('<KeyRelease>', lambda e: None)
-            self.txt_input.delete("1.0", tk.END)
-            self.txt_input.insert("1.0", result)
-            self.txt_input.bind('<KeyRelease>', self.on_input_change)
-            
-            self.update_char_count()
-            
-        except Exception as e:
-            print(f"Error decoding: {e}")
+            fuzzy_cb = QCheckBox()
+            fuzzy_cb.setChecked('fuzzy' in entry.flags)
+            self.table.setCellWidget(row, 3, fuzzy_cb)
     
-    def force_process(self):
-        """Force immediate processing"""
-        self.update_output()
+    def load_json(self):
+        with open(self.filepath, 'r', encoding='utf-8') as f:
+            self.data = json.load(f)
+        self.populate_dict(self.data)
     
-    def new_file(self):
-        """Create new file"""
-        if self.txt_input.get("1.0", "end-1c").strip():
-            if not messagebox.askyesno(self.lang.get('warning'),
-                                      self.lang.get('new_confirm')):
-                return
+    def load_yaml(self):
+        with open(self.filepath, 'r', encoding='utf-8') as f:
+            self.data = yaml.safe_load(f)
+        self.populate_dict(self.data)
+    
+    def load_xml(self):
+        tree = ET.parse(self.filepath)
+        self.data = tree.getroot()
+        self.populate_xml(self.data)
+    
+    def populate_dict(self, data, prefix=''):
+        """Populate table from dict (JSON/YAML)"""
+        if isinstance(data, dict):
+            for key, value in data.items():
+                full_key = f"{prefix}.{key}" if prefix else key
+                if isinstance(value, (dict, list)):
+                    self.populate_dict(value, full_key)
+                else:
+                    row = self.table.rowCount()
+                    self.table.insertRow(row)
+                    self.table.setItem(row, 0, QTableWidgetItem(full_key))
+                    self.table.item(row, 0).setFlags(self.table.item(row, 0).flags() & ~Qt.ItemIsEditable)
+                    self.table.setItem(row, 1, QTableWidgetItem(str(value)))
+                    self.table.setItem(row, 2, QTableWidgetItem(''))
+        elif isinstance(data, list):
+            for i, value in enumerate(data):
+                full_key = f"{prefix}[{i}]"
+                if isinstance(value, (dict, list)):
+                    self.populate_dict(value, full_key)
+                else:
+                    row = self.table.rowCount()
+                    self.table.insertRow(row)
+                    self.table.setItem(row, 0, QTableWidgetItem(full_key))
+                    self.table.item(row, 0).setFlags(self.table.item(row, 0).flags() & ~Qt.ItemIsEditable)
+                    self.table.setItem(row, 1, QTableWidgetItem(str(value)))
+                    self.table.setItem(row, 2, QTableWidgetItem(''))
+    
+    def populate_xml(self, root, prefix=''):
+        """Populate table from XML"""
+        for child in root:
+            tag = f"{prefix}.{child.tag}" if prefix else child.tag
+            
+            # Add element with text
+            if child.text and child.text.strip():
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(tag))
+                self.table.item(row, 0).setFlags(self.table.item(row, 0).flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 1, QTableWidgetItem(child.text.strip()))
+                self.table.setItem(row, 2, QTableWidgetItem(''))
+            
+            # Add attributes
+            for attr, value in child.attrib.items():
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(f"{tag}[@{attr}]"))
+                self.table.item(row, 0).setFlags(self.table.item(row, 0).flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 1, QTableWidgetItem(value))
+                self.table.setItem(row, 2, QTableWidgetItem('attribute'))
+            
+            # Recurse
+            if len(child) > 0:
+                self.populate_xml(child, tag)
+    
+    def filter_entries(self):
+        search = self.search_input.text().lower()
         
-        self.txt_input.delete("1.0", tk.END)
-        self.txt_output.delete("1.0", tk.END)
-        self.update_status(self.lang.get('status_ready'))
+        for row in range(self.table.rowCount()):
+            show = True
+            
+            if search:
+                col0 = self.table.item(row, 0).text().lower()
+                col1 = self.table.item(row, 1).text().lower()
+                show = search in col0 or search in col1
+            
+            if show and self.file_type == '.po':
+                filter_type = self.filter_combo.currentText()
+                if filter_type != self.lang.get('show_all'):
+                    msgstr = self.table.item(row, 1).text()
+                    fuzzy = self.table.cellWidget(row, 3).isChecked()
+                    
+                    if filter_type == self.lang.get('untranslated'):
+                        show = not msgstr
+                    elif filter_type == self.lang.get('translated'):
+                        show = bool(msgstr) and not fuzzy
+                    elif filter_type == self.lang.get('fuzzy'):
+                        show = fuzzy
+            
+            self.table.setRowHidden(row, not show)
     
-    def open_file(self):
-        """Open file"""
-        filename = filedialog.askopenfilename(
-            title=self.lang.get('open'),
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-        )
+    def select_current_text(self):
+        """Select entire text in current cell"""
+        current_item = self.table.currentItem()
+        if current_item and current_item.column() in [0, 1]:
+            # Select all text in the cell
+            self.table.editItem(current_item)
+            # Trigger select all in the editor
+            if self.table.currentItem():
+                cursor = self.table.itemWidget(self.table.currentRow(), self.table.currentColumn())
+                if hasattr(cursor, 'selectAll'):
+                    cursor.selectAll()
+    
+    def process_selected(self):
+        """Process selected rows or selected text"""
+        exceptions = self.db.get_exception_patterns()
         
-        if filename:
-            try:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                self.txt_input.delete("1.0", tk.END)
-                self.txt_input.insert("1.0", content)
-                self.update_output()
-                self.update_status(self.lang.get('file_opened'))
-                
-            except Exception as e:
-                messagebox.showerror(self.lang.get('error'), str(e))
+        for item in self.table.selectedItems():
+            row = item.row()
+            if item.column() == 1:  # Value column
+                text = item.text()
+                if text:
+                    # Process with bidi + reshaper
+                    processed = TextProcessor.encode_text(text, exceptions)
+                    item.setText(processed)
+    
+    def process_all(self):
+        """Process all visible rows"""
+        exceptions = self.db.get_exception_patterns()
+        
+        for row in range(self.table.rowCount()):
+            if not self.table.isRowHidden(row):
+                value_item = self.table.item(row, 1)
+                if value_item:
+                    text = value_item.text()
+                    if text and (self.file_type != '.po' or not text):  # For PO, only untranslated
+                        processed = TextProcessor.encode_text(text, exceptions)
+                        value_item.setText(processed)
     
     def save_file(self):
-        """Save output file"""
-        filename = filedialog.asksaveasfilename(
-            title=self.lang.get('save_output'),
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-        )
+        try:
+            if self.file_type == '.po':
+                self.save_po()
+            elif self.file_type == '.json':
+                self.save_json()
+            elif self.file_type in ['.yaml', '.yml']:
+                self.save_yaml()
+            elif self.file_type == '.xml':
+                self.save_xml()
+            
+            QMessageBox.information(self, 'Success', 'File saved')
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to save: {str(e)}')
+    
+    def save_po(self):
+        for row in range(self.table.rowCount()):
+            msgid = self.table.item(row, 0).text()
+            msgstr = self.table.item(row, 1).text()
+            comment = self.table.item(row, 2).text()
+            fuzzy = self.table.cellWidget(row, 3).isChecked()
+            
+            for entry in self.data:
+                if entry.msgid == msgid:
+                    entry.msgstr = msgstr
+                    entry.comment = comment
+                    if fuzzy and 'fuzzy' not in entry.flags:
+                        entry.flags.append('fuzzy')
+                    elif not fuzzy and 'fuzzy' in entry.flags:
+                        entry.flags.remove('fuzzy')
+                    break
         
-        if filename:
+        self.data.save(self.filepath)
+    
+    def save_json(self):
+        # Rebuild dict from table
+        new_data = {}
+        for row in range(self.table.rowCount()):
+            key = self.table.item(row, 0).text()
+            value = self.table.item(row, 1).text()
+            self.set_nested(new_data, key, value)
+        
+        with open(self.filepath, 'w', encoding='utf-8') as f:
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
+    
+    def save_yaml(self):
+        new_data = {}
+        for row in range(self.table.rowCount()):
+            key = self.table.item(row, 0).text()
+            value = self.table.item(row, 1).text()
+            self.set_nested(new_data, key, value)
+        
+        with open(self.filepath, 'w', encoding='utf-8') as f:
+            yaml.dump(new_data, f, allow_unicode=True, default_flow_style=False)
+    
+    def save_xml(self):
+        # Update XML tree from table
+        for row in range(self.table.rowCount()):
+            key = self.table.item(row, 0).text()
+            value = self.table.item(row, 1).text()
+            
+            if '@' in key:  # Attribute
+                tag, attr = key.rsplit('[@', 1)
+                attr = attr.rstrip(']')
+                element = self.find_element(self.data, tag)
+                if element is not None:
+                    element.set(attr, value)
+            else:  # Text
+                element = self.find_element(self.data, key)
+                if element is not None:
+                    element.text = value
+        
+        tree = ET.ElementTree(self.data)
+        tree.write(self.filepath, encoding='utf-8', xml_declaration=True)
+    
+    def set_nested(self, data, key, value):
+        """Set nested dict value from dotted key"""
+        parts = key.replace('[', '.').replace(']', '').split('.')
+        current = data
+        for part in parts[:-1]:
+            if part.isdigit():
+                part = int(part)
+                if not isinstance(current, list):
+                    current = []
+                while len(current) <= part:
+                    current.append({})
+                current = current[part]
+            else:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+        
+        last_key = parts[-1]
+        if last_key.isdigit():
+            last_key = int(last_key)
+        current[last_key] = value
+    
+    def find_element(self, root, path):
+        """Find XML element by dotted path"""
+        parts = path.split('.')
+        current = root
+        for part in parts:
+            found = False
+            for child in current:
+                if child.tag == part:
+                    current = child
+                    found = True
+                    break
+            if not found:
+                return None
+        return current
+
+class HarfnegarGUI(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.db = DatabaseManager()
+        self.lang = LanguageManager(self.db)
+        self.zoom_level = 0
+        self.history = []
+        
+        try:
+            self.history = self.db.get_history(10)
+        except:
+            pass
+        
+        self.input_timer = QTimer()
+        self.input_timer.setSingleShot(True)
+        self.input_timer.timeout.connect(self.process_input)
+        
+        self.copy_timer = QTimer()
+        self.copy_timer.setSingleShot(True)
+        self.copy_timer.timeout.connect(self.delayed_copy)
+        
+        self.clipboard_timer = QTimer()
+        self.clipboard_timer.timeout.connect(self.monitor_clipboard)
+        self.clipboard_timer.start(1000)
+        
+        self.last_clipboard = ""
+        self.pending_copy = ""
+        
+        self.setup_ui()
+        self.apply_theme()
+    
+    def setup_ui(self):
+        self.setWindowTitle(f"{self.lang.get('app_name')} v1.4.2")
+        self.resize(self.db.get_int('window_width', 1200), self.db.get_int('window_height', 800))
+        
+        icon_path = 'icon.ico' if platform.system() == 'Windows' else 'icon.png'
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+        
+        main_layout.addWidget(QLabel(self.lang.get('input')))
+        self.txt_input = QTextEdit()
+        self.txt_input.textChanged.connect(self.on_input_change)
+        main_layout.addWidget(self.txt_input, 1)
+        
+        main_layout.addWidget(QLabel(self.lang.get('output')))
+        self.txt_output = QTextEdit()
+        self.txt_output.textChanged.connect(self.on_output_change)
+        main_layout.addWidget(self.txt_output, 1)
+        
+        ctrl_layout = QHBoxLayout()
+        self.auto_copy_cb = QCheckBox(self.lang.get('auto_copy'))
+        self.auto_copy_cb.setChecked(self.db.get_bool('auto_copy', True))
+        ctrl_layout.addWidget(self.auto_copy_cb)
+        
+        clear_btn = QPushButton(self.lang.get('clear'))
+        clear_btn.clicked.connect(self.clear_all)
+        ctrl_layout.addWidget(clear_btn)
+        ctrl_layout.addStretch()
+        
+        process_btn = QPushButton(self.lang.get('process'))
+        process_btn.clicked.connect(self.force_process)
+        ctrl_layout.addWidget(process_btn)
+        
+        copy_btn = QPushButton(self.lang.get('copy'))
+        copy_btn.clicked.connect(self.copy_output)
+        ctrl_layout.addWidget(copy_btn)
+        main_layout.addLayout(ctrl_layout)
+        
+        self.status = self.statusBar()
+        self.char_label = QLabel(f"0 {self.lang.get('chars')}")
+        self.status.addPermanentWidget(self.char_label)
+        self.word_label = QLabel(f"0 {self.lang.get('words')}")
+        self.status.addPermanentWidget(self.word_label)
+        
+        self.create_menu()
+    
+    def create_menu(self):
+        menubar = self.menuBar()
+        
+        file_menu = menubar.addMenu(self.lang.get('file'))
+        file_menu.addAction(self.lang.get('new'), self.new_file)
+        file_menu.addAction(self.lang.get('open'), self.open_file)
+        file_menu.addAction(self.lang.get('save'), self.save_file)
+        file_menu.addSeparator()
+        
+        self.recent_menu = file_menu.addMenu(self.lang.get('recent'))
+        self.update_recent_menu()
+        
+        file_menu.addSeparator()
+        file_menu.addAction(self.lang.get('exit'), self.close)
+        
+        edit_menu = menubar.addMenu(self.lang.get('edit'))
+        edit_menu.addAction(self.lang.get('undo'), self.undo)
+        edit_menu.addAction(self.lang.get('redo'), self.redo)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.lang.get('cut'), self.cut_text)
+        edit_menu.addAction(self.lang.get('copy'), self.copy_text)
+        edit_menu.addAction(self.lang.get('paste'), self.paste_text)
+        edit_menu.addAction(self.lang.get('select_all'), self.select_all)
+        
+        view_menu = menubar.addMenu(self.lang.get('view'))
+        view_menu.addAction(self.lang.get('zoom_in'), self.zoom_in)
+        view_menu.addAction(self.lang.get('zoom_out'), self.zoom_out)
+        view_menu.addAction(self.lang.get('reset'), self.reset_zoom)
+        view_menu.addSeparator()
+        view_menu.addAction(self.lang.get('stats'), self.show_statistics)
+        
+        tools_menu = menubar.addMenu(self.lang.get('tools'))
+        tools_menu.addAction(self.lang.get('po_editor'), lambda: self.open_file_editor('.po'))
+        tools_menu.addAction(self.lang.get('json_editor'), lambda: self.open_file_editor('.json'))
+        tools_menu.addAction(self.lang.get('yaml_editor'), lambda: self.open_file_editor('.yaml'))
+        tools_menu.addAction(self.lang.get('xml_editor'), lambda: self.open_file_editor('.xml'))
+        tools_menu.addSeparator()
+        tools_menu.addAction(self.lang.get('font'), self.font_settings)
+        tools_menu.addSeparator()
+        
+        self.top_action = QAction(self.lang.get('always_on_top'), self, checkable=True)
+        self.top_action.setChecked(self.db.get_bool('always_on_top'))
+        self.top_action.triggered.connect(self.toggle_on_top)
+        tools_menu.addAction(self.top_action)
+        
+        self.quick_action = QAction(self.lang.get('quick_mode'), self, checkable=True)
+        self.quick_action.setChecked(self.db.get_bool('quick_mode', True))
+        tools_menu.addAction(self.quick_action)
+        
+        theme_menu = tools_menu.addMenu(self.lang.get('theme'))
+        self.theme_group = QActionGroup(self)
+        current_theme = self.db.get('theme', 'light')
+        
+        for theme in ['light', 'dark']:
+            action = QAction(self.lang.get(theme), self, checkable=True)
+            action.triggered.connect(lambda checked, t=theme: self.set_theme(t))
+            self.theme_group.addAction(action)
+            theme_menu.addAction(action)
+            if current_theme == theme:
+                action.setChecked(True)
+        
+        help_menu = menubar.addMenu(self.lang.get('help'))
+        help_menu.addAction(self.lang.get('about'), self.show_about)
+    
+    def apply_theme(self):
+        theme = self.db.get('theme', 'light')
+        app = QApplication.instance()
+        
+        if theme == 'dark':
+            app.setStyle('Fusion')
+            palette = QPalette()
+            palette.setColor(QPalette.Window, QColor(53, 53, 53))
+            palette.setColor(QPalette.WindowText, Qt.white)
+            palette.setColor(QPalette.Base, QColor(35, 35, 35))
+            palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+            palette.setColor(QPalette.Text, Qt.white)
+            palette.setColor(QPalette.Button, QColor(53, 53, 53))
+            palette.setColor(QPalette.ButtonText, Qt.white)
+            palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+            palette.setColor(QPalette.HighlightedText, Qt.black)
+            palette.setColor(QPalette.ToolTipBase, QColor(53, 53, 53))
+            palette.setColor(QPalette.ToolTipText, Qt.white)
+            app.setPalette(palette)
+        else:
+            app.setStyle('Fusion')
+            palette = QPalette()
+            palette.setColor(QPalette.Window, QColor(240, 240, 240))
+            palette.setColor(QPalette.WindowText, Qt.black)
+            palette.setColor(QPalette.Base, Qt.white)
+            palette.setColor(QPalette.AlternateBase, QColor(245, 245, 245))
+            palette.setColor(QPalette.Text, Qt.black)
+            palette.setColor(QPalette.Button, QColor(240, 240, 240))
+            palette.setColor(QPalette.ButtonText, Qt.black)
+            palette.setColor(QPalette.Highlight, QColor(0, 120, 215))
+            palette.setColor(QPalette.HighlightedText, Qt.white)
+            palette.setColor(QPalette.ToolTipBase, Qt.white)
+            palette.setColor(QPalette.ToolTipText, Qt.black)
+            app.setPalette(palette)
+        
+        # Apply to text edits
+        if theme == 'dark':
+            self.txt_input.setStyleSheet("QTextEdit { background-color: #2b2b2b; color: white; }")
+            self.txt_output.setStyleSheet("QTextEdit { background-color: #2b2b2b; color: white; }")
+        else:
+            self.txt_input.setStyleSheet("QTextEdit { background-color: white; color: black; }")
+            self.txt_output.setStyleSheet("QTextEdit { background-color: #f5fff5; color: black; }")
+    
+    def set_theme(self, theme):
+        self.db.set('theme', theme)
+        self.apply_theme()
+    
+    def on_input_change(self):
+        if hasattr(self, '_updating') and self._updating:
+            return
+        text = self.txt_input.toPlainText()
+        self.char_label.setText(f"{len(text)} {self.lang.get('chars')}")
+        words = len(text.split()) if text.strip() else 0
+        self.word_label.setText(f"{words} {self.lang.get('words')}")
+        self.input_timer.stop()
+        self.input_timer.start(100)
+    
+    def process_input(self):
+        self._updating = True
+        text = self.txt_input.toPlainText()
+        if text:
+            exceptions = self.db.get_exception_patterns()
+            result = TextProcessor.encode_text(text, exceptions)
+            self.txt_output.setPlainText(result)
+            
+            if self.auto_copy_cb.isChecked():
+                self.pending_copy = result
+                self.copy_timer.stop()
+                self.copy_timer.start(500)
+            
+            if self.db.get_bool('auto_save', True):
+                try:
+                    self.db.add_history(text, result)
+                    self.history = self.db.get_history(10)
+                    self.update_recent_menu()
+                except:
+                    pass
+        else:
+            self.txt_output.clear()
+        self._updating = False
+    
+    def delayed_copy(self):
+        if self.pending_copy and self.auto_copy_cb.isChecked():
             try:
-                content = self.txt_output.get("1.0", "end-1c")
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                self.update_status(self.lang.get('file_saved'))
-                messagebox.showinfo(self.lang.get('success'),
-                                   self.lang.get('file_saved'))
-                
+                pyperclip.copy(self.pending_copy)
+            except: pass
+    
+    def on_output_change(self):
+        if hasattr(self, '_updating') and self._updating:
+            return
+        self._updating = True
+        text = self.txt_output.toPlainText()
+        if text:
+            result = TextProcessor.decode_text(text)
+            self.txt_input.setPlainText(result)
+        self._updating = False
+    
+    def force_process(self):
+        self.process_input()
+    
+    def clear_all(self):
+        self.txt_input.clear()
+        self.txt_output.clear()
+    
+    def new_file(self):
+        if QMessageBox.question(self, 'New', 'Create new?') == QMessageBox.Yes:
+            self.clear_all()
+    
+    def open_file(self):
+        fn, _ = QFileDialog.getOpenFileName(self, 'Open', '', 'All Files (*.*);;PO (*.po);;JSON (*.json);;YAML (*.yaml *.yml);;XML (*.xml)')
+        if fn:
+            try:
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in ['.po', '.json', '.yaml', '.yml', '.xml']:
+                    UniversalFileEditor(self, self.lang, fn, self.db).exec()
+                else:
+                    text = TextProcessor.read_file(fn)
+                    self.txt_input.setPlainText(text)
             except Exception as e:
-                messagebox.showerror(self.lang.get('error'), str(e))
+                QMessageBox.critical(self, 'Error', str(e))
+    
+    def open_file_editor(self, ext):
+        filters = {'.po': 'PO (*.po)', '.json': 'JSON (*.json)', '.yaml': 'YAML (*.yaml *.yml)', '.xml': 'XML (*.xml)'}
+        fn, _ = QFileDialog.getOpenFileName(self, 'Open', '', filters.get(ext, 'All (*.*)'))
+        if fn:
+            UniversalFileEditor(self, self.lang, fn, self.db).exec()
+    
+    def save_file(self):
+        fn, _ = QFileDialog.getSaveFileName(self, 'Save', '', 'Text (*.txt);;HTML (*.html)')
+        if fn:
+            try:
+                with open(fn, 'w', encoding='utf-8') as f:
+                    f.write(self.txt_output.toPlainText())
+            except Exception as e:
+                QMessageBox.critical(self, 'Error', str(e))
     
     def undo(self):
-        """Undo"""
-        focused = self.root.focus_get()
-        try:
-            if focused == self.txt_output:
-                self.txt_output.edit_undo()
-            else:
-                self.txt_input.edit_undo()
-        except:
-            pass
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).undo()
+    
+    def redo(self):
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).redo()
+    
+    def cut_text(self):
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).cut()
     
     def select_all(self):
-        """Select all"""
-        focused = self.root.focus_get()
-        if focused == self.txt_output:
-            self.txt_output.tag_add('sel', '1.0', 'end')
-        else:
-            self.txt_input.tag_add('sel', '1.0', 'end')
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).selectAll()
     
     def copy_text(self):
-        """Copy selected text"""
-        focused = self.root.focus_get()
-        try:
-            if focused in [self.txt_input, self.txt_output]:
-                text = focused.selection_get()
-                self.copy_to_clipboard(text)
-                self.update_status(self.lang.get('copied'), 1500)
-        except:
-            pass
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).copy()
     
     def paste_text(self):
-        """Paste text"""
-        focused = self.root.focus_get()
-        try:
-            if focused in [self.txt_input, self.txt_output]:
-                text = pyperclip.paste()
-                focused.insert(tk.INSERT, text)
-        except:
-            pass
+        (self.txt_input if self.txt_input.hasFocus() else self.txt_output).paste()
     
     def copy_output(self):
-        """Copy output"""
-        text = self.txt_output.get("1.0", "end-1c")
-        if text.strip():
-            self.copy_to_clipboard(text)
-            self.update_status(self.lang.get('copied'), 1500)
-    
-    def copy_to_clipboard(self, text):
-        """Copy to clipboard"""
         try:
-            pyperclip.copy(text)
-        except Exception as e:
-            print(f"Clipboard error: {e}")
-    
-    def open_regex_window(self):
-        """Open regex window"""
-        def callback(result):
-            self.txt_output.delete("1.0", tk.END)
-            self.txt_output.insert("1.0", result)
-        
-        RegexWindow(self.root, self.lang, self.txt_input, 
-                   self.txt_output, callback)
+            pyperclip.copy(self.txt_output.toPlainText())
+        except: pass
     
     def font_settings(self):
-        """Font settings dialog"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title(self.lang.get('font_settings'))
-        dialog.geometry("400x200")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Center
-        x = self.root.winfo_x() + (self.root.winfo_width() - 400) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 200) // 2
-        dialog.geometry(f"+{x}+{y}")
-        
-        # Font family
-        ttk.Label(dialog, text="Font:").pack(pady=10)
-        families = ['Tahoma', 'Arial', 'Courier New', 'B Nazanin', 'Nazanin']
-        font_var = tk.StringVar(value=self.text_font.actual('family'))
-        font_combo = ttk.Combobox(dialog, textvariable=font_var, values=families)
-        font_combo.pack(pady=5)
-        
-        # Font size
-        ttk.Label(dialog, text="Size:").pack(pady=10)
-        size_var = tk.IntVar(value=self.text_font.actual('size'))
-        size_spin = ttk.Spinbox(dialog, from_=8, to=32, textvariable=size_var)
-        size_spin.pack(pady=5)
-        
-        def apply():
-            self.text_font.config(family=font_var.get(), size=size_var.get())
-            self.txt_input.config(font=self.text_font)
-            self.txt_output.config(font=self.text_font)
-            self.settings.set('font_family', font_var.get())
-            self.settings.set('font_size', size_var.get())
-            dialog.destroy()
-        
-        ttk.Button(dialog, text="Apply", command=apply).pack(pady=10)
+        font, ok = QFontDialog.getFont(self.txt_input.font(), self)
+        if ok:
+            self.txt_input.setFont(font)
+            self.txt_output.setFont(font)
+            self.db.set('font_family', font.family())
+            self.db.set('font_size', font.pointSize())
     
-    def toggle_always_on_top(self):
-        """Toggle always on top"""
-        self.root.attributes('-topmost', self.always_on_top.get())
-        self.settings.set('always_on_top', self.always_on_top.get())
+    def toggle_on_top(self):
+        flags = self.windowFlags()
+        if self.top_action.isChecked():
+            self.setWindowFlags(flags | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(flags & ~Qt.WindowStaysOnTopHint)
+        self.show()
+        self.db.set('always_on_top', self.top_action.isChecked())
     
-    def toggle_quick_mode(self):
-        """Toggle quick mode"""
-        self.settings.set('quick_mode', self.quick_mode.get())
+    def zoom_in(self):
+        self.zoom_level += 1
+        self.apply_zoom()
     
-    def toggle_auto_copy(self):
-        """Toggle auto copy"""
-        self.settings.set('auto_copy', self.auto_copy.get())
+    def zoom_out(self):
+        self.zoom_level -= 1
+        self.apply_zoom()
     
-    def change_language(self, lang_code):
-        """Change interface language"""
-        self.lang.set_language(lang_code)
-        self.settings.set('language', lang_code)
+    def reset_zoom(self):
+        self.zoom_level = 0
+        self.apply_zoom()
+    
+    def apply_zoom(self):
+        font = self.txt_input.font()
+        base = self.db.get_int('font_size', 11)
+        new_size = max(8, base + self.zoom_level)
+        font.setPointSize(new_size)
+        self.txt_input.setFont(font)
+        self.txt_output.setFont(font)
+    
+    def update_recent_menu(self):
+        self.recent_menu.clear()
+        if not self.history:
+            self.recent_menu.addAction('(Empty)').setEnabled(False)
+            return
+        for i, (inp, out, ts) in enumerate(self.history[:5], 1):
+            preview = inp[:30] + '...' if len(inp) > 30 else inp
+            action = self.recent_menu.addAction(f"{i}. {preview}")
+            action.triggered.connect(lambda checked, t=inp: self.txt_input.setPlainText(t))
+    
+    def show_statistics(self):
+        text = self.txt_input.toPlainText()
+        lines = text.count('\n') + 1 if text else 0
+        chars = len(text)
+        words = len(text.split()) if text.strip() else 0
+        persian = sum(1 for c in text if TextProcessor.is_persian_arabic(c))
         
-        messagebox.showinfo(
-            self.lang.get('info'),
-            "Please restart the application for language changes to take effect."
+        QMessageBox.information(self, self.lang.get('stats'),
+            f"Lines: {lines}\nWords: {words}\nChars: {chars}\nPersian/Arabic: {persian}"
         )
     
     def monitor_clipboard(self):
-        """Monitor clipboard in quick mode"""
-        try:
-            if self.quick_mode.get():
+        if self.quick_action.isChecked():
+            try:
                 text = pyperclip.paste()
                 if text and text != self.last_clipboard:
                     self.last_clipboard = text
-                    if any('\u0600' <= c <= '\u06FF' for c in text):
-                        result = TextProcessor.encode_text(text)
-                        self.copy_to_clipboard(result)
-        except:
-            pass
-        
-        self.root.after(1000, self.monitor_clipboard)
-    
-    def show_help(self):
-        """Show help"""
-        messagebox.showinfo(self.lang.get('help'), 
-                           self.lang.get('help_text'))
+                    if any(TextProcessor.is_persian_arabic(c) for c in text):
+                        exceptions = self.db.get_exception_patterns()
+                        result = TextProcessor.encode_text(text, exceptions)
+                        pyperclip.copy(result)
+            except: pass
     
     def show_about(self):
-        """Show about"""
-        messagebox.showinfo(self.lang.get('about'),
-                           self.lang.get('about_text'))
+        QMessageBox.about(self, self.lang.get('about'),
+            f"{self.lang.get('app_name')} v1.4.2\n\n"
+            "Universal File Editor\n"
+            "PO • JSON • YAML • XML\n\n"
+            "Copyright (c) 2026 Sobhan Mohammadi\n"
+            "GPL-2.0 License"
+        )
     
-    def run(self):
-        """Run application"""
-        self.root.mainloop()
-        self.settings.close()
-
+    def closeEvent(self, event):
+        self.db.set('window_width', self.width())
+        self.db.set('window_height', self.height())
+        self.db.set('auto_copy', self.auto_copy_cb.isChecked())
+        self.db.set('quick_mode', self.quick_action.isChecked())
+        self.db.close()
+        event.accept()
 
 def main():
-    """Main entry point"""
-    root = tk.Tk()
-    app = HarfnegarGUI(root)
-    app.run()
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    window = HarfnegarGUI()
+    window.show()
+    sys.exit(app.exec())
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

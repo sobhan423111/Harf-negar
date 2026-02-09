@@ -1,155 +1,123 @@
 # -*- coding: utf-8 -*-
-"""
-Harfnegar - Text Processor
-Processes Persian/Arabic text using arabic-reshaper and python-bidi
-
-Copyright (c) 2026 Sobhan Mohammadi
-Licensed under GPL-2.0
-"""
-
+"""Harfnegar Text Processor v1.4.2 - Simple bidi + reshaper
+Copyright (c) 2026 Sobhan Mohammadi - GPL-2.0"""
 from arabic_reshaper import reshape
 from bidi.algorithm import get_display
-import re
-
+import re, os
 
 class TextProcessor:
-    """Text processing for Persian/Arabic text"""
+    @staticmethod
+    def is_persian_arabic(char):
+        code = ord(char)
+        return (0x0600 <= code <= 0x06FF) or (0xFB50 <= code <= 0xFDFF) or (0xFE70 <= code <= 0xFEFF)
     
     @staticmethod
-    def encode_text(text):
-        """
-        Encode text for display (reshape and apply bidi)
-        
-        Args:
-            text: Input Persian/Arabic text
-            
-        Returns:
-            Processed text ready for display
-        """
+    def encode_text(text, exceptions=None):
+        """Process: reshape + bidi"""
         if not text:
             return ""
-        
-        try:
-            # Reshape Arabic/Persian characters
-            reshaped = reshape(text)
-            
-            # Apply bidirectional algorithm
-            display_text = get_display(reshaped)
-            
-            return display_text
-        except Exception as e:
-            print(f"Error encoding text: {e}")
+        if exceptions and TextProcessor.matches_exception(text, exceptions):
             return text
+        try:
+            return get_display(reshape(text))
+        except:
+            return text
+    
+    @staticmethod
+    def matches_exception(text, exceptions):
+        if not exceptions:
+            return False
+        for pattern in exceptions:
+            try:
+                if re.search(pattern, text, re.UNICODE | re.MULTILINE):
+                    return True
+            except:
+                continue
+        return False
     
     @staticmethod
     def decode_text(text):
-        """
-        Decode reshaped text back to original form
-        Note: This is a best-effort approximation
-        
-        Args:
-            text: Reshaped display text
-            
-        Returns:
-            Decoded text (approximation)
-        """
+        return text[::-1] if text else ""
+    
+    @staticmethod
+    def find_regex_matches(text, patterns):
+        if not text or not patterns:
+            return None
+        all_matches = []
+        for pattern in patterns:
+            if not pattern.strip():
+                continue
+            try:
+                for m in re.finditer(pattern, text, re.UNICODE | re.MULTILINE):
+                    all_matches.append((m.start(), m.end(), m.group(0), pattern))
+            except:
+                continue
+        all_matches.sort(key=lambda x: x[0])
+        return all_matches if all_matches else None
+    
+    @staticmethod
+    def extract_and_process_matches(text, matches, exceptions=None):
+        if not matches:
+            return ""
+        try:
+            lines = [m[2] for m in matches]
+            combined = '\n'.join(lines)
+            return TextProcessor.encode_text(combined, exceptions)
+        except:
+            return ""
+    
+    @staticmethod
+    def reverse_text(text):
+        return text[::-1] if text else ""
+    
+    @staticmethod
+    def remove_extra_spaces(text):
+        return re.sub(r'\s+', ' ', text).strip() if text else ""
+    
+    @staticmethod
+    def add_line_numbers(text):
         if not text:
             return ""
-        
-        try:
-            # Reverse the string (undo bidi)
-            reversed_text = text[::-1]
-            
-            # Try to detect and convert reshaped forms back
-            # This is approximate - perfect reversal is not always possible
-            result = []
-            
-            for char in reversed_text:
-                code = ord(char)
-                
-                # Map common reshaped forms back to original
-                if 0xFE70 <= code <= 0xFEFF:
-                    # Arabic Presentation Forms-B
-                    # Try to map back (simplified mapping)
-                    if 0xFE80 <= code <= 0xFEF4:
-                        # Rough mapping to basic forms
-                        base = 0x0621 + ((code - 0xFE80) // 4)
-                        result.append(chr(base))
-                    else:
-                        result.append(char)
-                else:
-                    result.append(char)
-            
-            return ''.join(result)
-            
-        except Exception as e:
-            print(f"Error decoding text: {e}")
-            return text
+        lines = text.split('\n')
+        return '\n'.join([f"{i+1}. {line}" for i, line in enumerate(lines)])
     
     @staticmethod
-    def process_with_regex(text, pattern, positions):
-        """
-        Process only parts of text at given positions
-        
-        Args:
-            text: Input text
-            pattern: Regex pattern (not used, positions are pre-calculated)
-            positions: List of (start, end) tuples for matching positions
-            
-        Returns:
-            Text with only matched parts processed
-        """
-        if not text or not positions:
-            return text
-        
-        try:
-            # Sort positions by start
-            sorted_positions = sorted(positions, key=lambda x: x[0])
-            
-            result = []
-            last_end = 0
-            
-            for start, end in sorted_positions:
-                # Add unprocessed part
-                result.append(text[last_end:start])
-                
-                # Process matched part
-                matched_text = text[start:end]
-                processed = TextProcessor.encode_text(matched_text)
-                result.append(processed)
-                
-                last_end = end
-            
-            # Add remaining text
-            result.append(text[last_end:])
-            
-            return ''.join(result)
-            
-        except Exception as e:
-            print(f"Error in regex processing: {e}")
-            return text
+    def char_frequency(text):
+        if not text:
+            return {}
+        freq = {}
+        for char in text:
+            if char.strip():
+                freq[char] = freq.get(char, 0) + 1
+        return dict(sorted(freq.items(), key=lambda x: x[1], reverse=True))
     
     @staticmethod
-    def find_regex_matches(text, pattern):
-        """
-        Find all regex matches in text
+    def find_replace(text, find, replace):
+        if not text or not find:
+            return text
+        return text.replace(find, replace)
+    
+    @staticmethod
+    def read_file(filepath):
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"File not found: {filepath}")
         
-        Args:
-            text: Input text
-            pattern: Regex pattern
-            
-        Returns:
-            List of (start, end, matched_text) tuples or None if error
-        """
-        if not text or not pattern:
-            return None
+        ext = os.path.splitext(filepath)[1].lower()
         
         try:
-            matches = []
-            for match in re.finditer(pattern, text, re.UNICODE):
-                matches.append((match.start(), match.end(), match.group(0)))
-            
-            return matches if matches else None
-            
-        except re.error as e:
-            return None
+            if ext in ['.txt', '.text', '.md', '.csv', '.po', '.json', '.yaml', '.yml', '.xml']:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    return f.read()
+            elif ext in ['.docx', '.doc']:
+                from docx import Document
+                doc = Document(filepath)
+                return '\n'.join([p.text for p in doc.paragraphs])
+            elif ext == '.pdf':
+                from PyPDF2 import PdfReader
+                reader = PdfReader(filepath)
+                return '\n'.join([p.extract_text() for p in reader.pages])
+            else:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+        except Exception as e:
+            raise Exception(f"Error reading file: {str(e)}")
